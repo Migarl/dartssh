@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -42,18 +43,21 @@ class WebSocketImpl extends SocketInterface {
   }
 
   @override
-  void connect(Uri uri, VoidCallback onConnected, StringCallback onError,
+  Future<io.WebSocket> connect(
+      Uri uri, VoidCallback onConnected, StringCallback onError,
       {int timeoutSeconds = 15, bool ignoreBadCert = false}) async {
     assert(!connecting);
     connecting = true;
 
     if (!ignoreBadCert || !uri.hasScheme || uri.scheme != 'wss') {
-      return io.WebSocket.connect('$uri')
-          .timeout(Duration(seconds: timeoutSeconds))
-          .then((io.WebSocket x) {
-        socket = x;
+      socket = await io.WebSocket.connect('$uri')
+          .timeout(Duration(seconds: timeoutSeconds));
+      if (socket == null) {
+        onError(null);
+      } else {
         connectSucceeded(onConnected);
-      }, onError: (error, _) => onError(error));
+      }
+      return socket;
     }
 
     io.HttpClient client = io.HttpClient();
@@ -80,6 +84,7 @@ class WebSocketImpl extends SocketInterface {
     } catch (error) {
       onError(error);
     }
+    return socket;
   }
 
   void connectSucceeded(VoidCallback onConnected) {
@@ -148,7 +153,8 @@ class SSHTunneledWebSocketImpl extends WebSocketImpl {
         debugPrint = inputSocket.client.debugPrint;
 
   @override
-  void connect(Uri uri, VoidCallback onConnected, StringCallback onError,
+  Future<io.WebSocket> connect(
+      Uri uri, VoidCallback onConnected, StringCallback onError,
       {int timeoutSeconds = 15, bool ignoreBadCert = false}) async {
     uri = '$uri'.startsWith('wss')
         ? Uri.parse('https' + '$uri'.substring(3))
@@ -212,5 +218,6 @@ class SSHTunneledWebSocketImpl extends WebSocketImpl {
       onError('status ${response.status} ${response.reason}');
     }
     tunneledSocket = null;
+    return socket;
   }
 }

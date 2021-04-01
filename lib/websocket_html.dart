@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:html' as html;
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartssh/socket.dart';
@@ -51,21 +52,26 @@ class WebSocketImpl extends SocketInterface {
   }
 
   @override
-  void connect(Uri uri, VoidCallback onConnected, StringCallback onError,
-      {int timeoutSeconds = 15, bool ignoreBadCert = false}) {
+  Future<Socket> connect(
+      Uri uri, VoidCallback onConnected, StringCallback onError,
+      {int timeoutSeconds = 15, bool ignoreBadCert = false}) async {
     assert(!connecting);
 
     /// No way to allow self-signed certificates.
     assert(!ignoreBadCert);
+
+    Completer completer = new Completer<Socket>();
     try {
       connectCallback = onConnected;
       socket = html.WebSocket('$uri');
       socket.onOpen.listen(connectSucceeded);
       connectErrorSubscription =
           socket.onError.listen((error) => onError('$error'));
+      completer.complete(socket);
     } catch (error) {
       onError('$error');
     }
+    return completer.future;
   }
 
   void connectSucceeded(dynamic x) {

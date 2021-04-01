@@ -2,6 +2,7 @@
 // Use of this source code is governed by a MIT-style license that can be found in the LICENSE file.
 
 import 'dart:collection';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartssh/socket_html.dart'
@@ -34,7 +35,8 @@ abstract class SocketInterface extends ConnectionInterface {
   bool get connecting;
 
   /// Connects the socket to [uri] then invokes [onConnected] or [onError].
-  void connect(Uri uri, VoidCallback onConnected, StringCallback onError,
+  Future<dynamic> connect(
+      Uri uri, VoidCallback onConnected, StringCallback onError,
       {int timeoutSeconds = 15, bool ignoreBadCert = false});
 
   /// Sends [text] over the socket.
@@ -63,11 +65,13 @@ mixin TestConnection {
 
 /// Shim [Socket] for testing
 class TestSocket extends SocketInterface with TestConnection {
-  void connect(Uri address, VoidCallback onConnected, StringCallback onError,
+  Future<Socket> connect(
+      Uri address, VoidCallback onConnected, StringCallback onError,
       {int timeoutSeconds = 15, bool ignoreBadCert = false}) {
     connected = true;
     closed = false;
     onConnected();
+    return null;
   }
 
   void send(String text) => sent.add(text);

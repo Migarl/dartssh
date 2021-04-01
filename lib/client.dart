@@ -1,6 +1,7 @@
 // Copyright 2019 dartssh developers
 // Use of this source code is governed by a MIT-style license that can be found in the LICENSE file.
 
+import 'dart:io';
 import 'dart:math';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -52,6 +53,7 @@ class SSHClient extends SSHTransport with SSHAgentForwarding {
       List<Forward> forwardRemote,
       VoidCallback disconnected,
       ResponseCallback response,
+      ErrorCallback error,
       StringCallback print,
       StringCallback debugPrint,
       StringCallback tracePrint,
@@ -69,6 +71,7 @@ class SSHClient extends SSHTransport with SSHAgentForwarding {
             forwardRemote: forwardRemote,
             disconnected: disconnected,
             response: response,
+            error: error,
             print: print,
             debugPrint: debugPrint,
             tracePrint: tracePrint,
@@ -86,10 +89,13 @@ class SSHClient extends SSHTransport with SSHAgentForwarding {
               (hostport.scheme == 'ws' || hostport.scheme == 'wss'))
           ? WebSocketImpl()
           : SocketImpl();
-
-      socket.connect(
-          hostport, onConnected, (error) => disconnect('connect error'));
     }
+  }
+
+  Future<Socket> connect() async {
+    if (socket == null) return null;
+    return socket.connect(
+        hostport, onConnected, (error) => disconnect('connect error'));
   }
 
   /// https://tools.ietf.org/html/rfc4253#section-6
@@ -685,6 +691,7 @@ class SSHTunneledSocketImpl extends SocketInterface {
         success: openTunnel,
         print: print,
         debugPrint: debugPrint);
+    client.connect();
   }
 
   @override
@@ -723,15 +730,15 @@ class SSHTunneledSocketImpl extends SocketInterface {
 
   /// Connects to [address] over SSH tunnel provided by [client].
   @override
-  void connect(
+  Future<SocketInterface> connect(
       Uri address, VoidCallback connectCallback, StringCallback errorHandler,
-      {int timeoutSeconds = 15, bool ignoreBadCert = false}) {
+      {int timeoutSeconds = 15, bool ignoreBadCert = false}) async {
     tunnelToHost = address.host;
     tunnelToPort = address.port;
     connectHandler = connectCallback;
     connectError = errorHandler;
     if (clientOwner) {
-      client.socket.connect(client.hostport, client.onConnected, (error) {
+      await client.socket.connect(client.hostport, client.onConnected, (error) {
         client.disconnect('connect error');
         if (connectError != null) connectError(error);
       });
@@ -742,6 +749,7 @@ class SSHTunneledSocketImpl extends SocketInterface {
         openTunnel();
       }
     }
+    return client.socket;
   }
 
   /// Sends [MSG_CHANNEL_OPEN_TCPIP] for [tunnelToHost]:[tunnelToPort].

@@ -40,29 +40,28 @@ class SocketImpl extends SocketInterface {
   }
 
   @override
-  void connect(Uri uri, VoidCallback onConnected, StringCallback onError,
-      {int timeoutSeconds = 15, bool ignoreBadCert = false}) {
+  Future<Socket> connect(
+      Uri uri, VoidCallback onConnected, StringCallback onError,
+      {int timeoutSeconds = 15, bool ignoreBadCert = false}) async {
     assert(!connecting);
     connecting = true;
     if (socket != null) {
       if (socket is SocketAdaptor) {
-        (socket as SocketAdaptor).impl.connect(
+        return await (socket as SocketAdaptor).impl.connect(
             uri, () => connectSucceeded(onConnected), onError,
             timeoutSeconds: timeoutSeconds, ignoreBadCert: ignoreBadCert);
       } else {
         throw FormatException();
       }
     } else {
-      Socket.connect(uri.host, uri.port,
-              timeout: Duration(seconds: timeoutSeconds))
-          .then((Socket x) {
-        if (x == null) {
-          onError(null);
-        } else {
-          socket = x;
-          connectSucceeded(onConnected);
-        }
-      });
+      socket = await Socket.connect(uri.host, uri.port,
+          timeout: Duration(seconds: timeoutSeconds));
+      if (socket == null) {
+        onError(null);
+      } else {
+        connectSucceeded(onConnected);
+      }
+      return socket;
     }
   }
 
