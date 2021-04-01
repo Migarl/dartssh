@@ -1,6 +1,7 @@
 // Copyright 2019 dartssh developers
 // Use of this source code is governed by a MIT-style license that can be found in the LICENSE file.
 
+import 'dart:async';
 import 'dart:math';
 import 'dart:collection';
 import 'dart:typed_data';
@@ -30,6 +31,7 @@ typedef FingerprintCallback = bool Function(int, Uint8List);
 typedef ChannelCallback = void Function(Channel, Uint8List);
 typedef ChannelInputCallback = void Function(Channel, SerializableInput);
 typedef ResponseCallback = void Function(SSHTransport, String);
+typedef ErrorCallback = void Function(Exception);
 typedef RemoteForwardCallback = Future<String> Function(
     Channel, String, int, String, int);
 
@@ -97,6 +99,9 @@ abstract class SSHTransport with SSHDiffieHellman {
 
   /// Parameter invoked with session channel data (and optionally UI prompts).
   ResponseCallback response;
+
+  /// Parameter invoked with exception.
+  ErrorCallback error;
 
   /// Parameter invoked with ERROR and INFO loggging.
   StringCallback print;
@@ -178,6 +183,7 @@ abstract class SSHTransport with SSHDiffieHellman {
       this.forwardRemote,
       this.disconnected,
       this.response,
+      this.error,
       this.print,
       this.debugPrint,
       this.tracePrint,
@@ -277,79 +283,87 @@ abstract class SSHTransport with SSHDiffieHellman {
 
   /// Callback supplied to [socket.listen].
   void handleRead(Uint8List dataChunk) {
-    readBuffer.add(dataChunk);
+    try {
+      readBuffer.add(dataChunk);
 
-    /// Initialze with an ASCII version exchange.
-    if (state == SSHTransportState.INIT) {
-      handleInitialState();
-      if (state == SSHTransportState.INIT) return;
-    }
+      /// Initialze with an ASCII version exchange.
+      if (state == SSHTransportState.INIT) {
+        handleInitialState();
+        if (state == SSHTransportState.INIT) return;
+      }
 
-    /// Thereafter we speak RFC4253 Binary Packet Protocol.
-    while (true) {
-      bool encrypted = state > SSHTransportState.FIRST_NEWKEYS;
+      /// Thereafter we speak RFC4253 Binary Packet Protocol.
+      while (true) {
+        bool encrypted = state > SSHTransportState.FIRST_NEWKEYS;
 
-      /// We only need to decrypt one cipher block to determine the next packet length.
-      if (packetLen == 0) {
-        packetMacLen = macHashLenS != 0
-            ? (macPrefixS2c != 0 ? macPrefixS2c : macHashLenS)
-            : 0;
-        if (readBuffer.data.length < BinaryPacket.headerSize ||
-            (encrypted && readBuffer.data.length < decryptBlockSize)) {
-          return;
+        /// We only need to decrypt one cipher block to determine the next packet length.
+        if (packetLen == 0) {
+          packetMacLen = macHashLenS != 0
+              ? (macPrefixS2c != 0 ? macPrefixS2c : macHashLenS)
+              : 0;
+          if (readBuffer.data.length < BinaryPacket.headerSize ||
+              (encrypted && readBuffer.data.length < decryptBlockSize)) {
+            return;
+          }
+          if (encrypted) {
+            decryptBuf =
+                readCipher(viewUint8List(readBuffer.data, 0, decryptBlockSize));
+          }
+          BinaryPacket binaryPacket =
+              BinaryPacket(encrypted ? decryptBuf : readBuffer.data);
+          packetLen = 4 + binaryPacket.length + packetMacLen;
+          padding = binaryPacket.padding;
         }
+
+        /// Wait until we've read the entire packet.
+        if (readBuffer.data.length < packetLen) return;
+
+        /// Decrypts the remaining cipher blocks in the packet.
         if (encrypted) {
-          decryptBuf =
-              readCipher(viewUint8List(readBuffer.data, 0, decryptBlockSize));
+          decryptBuf = appendUint8List(
+              decryptBuf,
+              readCipher(viewUint8List(readBuffer.data, decryptBlockSize,
+                  packetLen - decryptBlockSize - packetMacLen)));
         }
-        BinaryPacket binaryPacket =
-            BinaryPacket(encrypted ? decryptBuf : readBuffer.data);
-        packetLen = 4 + binaryPacket.length + packetMacLen;
-        padding = binaryPacket.padding;
-      }
 
-      /// Wait until we've read the entire packet.
-      if (readBuffer.data.length < packetLen) return;
-
-      /// Decrypts the remaining cipher blocks in the packet.
-      if (encrypted) {
-        decryptBuf = appendUint8List(
-            decryptBuf,
-            readCipher(viewUint8List(readBuffer.data, decryptBlockSize,
-                packetLen - decryptBlockSize - packetMacLen)));
-      }
-
-      /// Verifies the Message Authentication Code (MAC).
-      sequenceNumberS2c++;
-      if (encrypted && packetMacLen != 0) {
-        Uint8List mac = computeMAC(
-            MAC.mac(macIdS2c),
-            macHashLenS,
-            viewUint8List(decryptBuf, 0, packetLen - packetMacLen),
-            sequenceNumberS2c - 1,
-            integrityS2c,
-            macPrefixS2c);
-        if (!equalUint8List(
-            mac,
-            viewUint8List(
-                readBuffer.data, packetLen - packetMacLen, packetMacLen))) {
-          throw FormatException('$hostport: verify MAC failed');
+        /// Verifies the Message Authentication Code (MAC).
+        sequenceNumberS2c++;
+        if (encrypted && packetMacLen != 0) {
+          Uint8List mac = computeMAC(
+              MAC.mac(macIdS2c),
+              macHashLenS,
+              viewUint8List(decryptBuf, 0, packetLen - packetMacLen),
+              sequenceNumberS2c - 1,
+              integrityS2c,
+              macPrefixS2c);
+          if (!equalUint8List(
+              mac,
+              viewUint8List(
+                  readBuffer.data, packetLen - packetMacLen, packetMacLen))) {
+            throw FormatException('$hostport: verify MAC failed');
+          }
         }
-      }
 
-      /// Handles the packet.
-      Uint8List packet = encrypted ? decryptBuf : readBuffer.data;
-      packetS = SerializableInput(viewUint8List(packet, BinaryPacket.headerSize,
-          packetLen - BinaryPacket.headerSize - packetMacLen - padding));
-      if (zreader != null) {
-        /// If compression has been negotiated, the 'payload' field (and only it)
-        /// will be compressed using the negotiated algorithm.
-        /// https://tools.ietf.org/html/rfc4253#section-6.2
-        packetS = SerializableInput(zreader.convert(packetS.buffer));
+        /// Handles the packet.
+        Uint8List packet = encrypted ? decryptBuf : readBuffer.data;
+        packetS = SerializableInput(viewUint8List(
+            packet,
+            BinaryPacket.headerSize,
+            packetLen - BinaryPacket.headerSize - packetMacLen - padding));
+        if (zreader != null) {
+          /// If compression has been negotiated, the 'payload' field (and only it)
+          /// will be compressed using the negotiated algorithm.
+          /// https://tools.ietf.org/html/rfc4253#section-6.2
+          packetS = SerializableInput(zreader.convert(packetS.buffer));
+        }
+        handlePacket(packet);
+        readBuffer.flush(packetLen);
+        packetLen = 0;
       }
-      handlePacket(packet);
-      readBuffer.flush(packetLen);
-      packetLen = 0;
+    } catch (err) {
+      if (error != null) {
+        error(err);
+      }
     }
   }
 
