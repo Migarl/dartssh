@@ -93,9 +93,18 @@ class SSHClient extends SSHTransport with SSHAgentForwarding {
   }
 
   Future<Socket> connect() async {
-    if (socket == null) return null;
-    return socket.connect(
-        hostport, onConnected, (error) => disconnect('connect error'));
+    try {
+      if (socket == null) return null;
+      return await socket.connect(
+          hostport, onConnected, (error) => disconnect('connect error'));
+    } catch (err) {
+      if (error != null) {
+        error(err);
+      } else {
+        rethrow;
+      }
+    }
+    return null;
   }
 
   /// https://tools.ietf.org/html/rfc4253#section-6

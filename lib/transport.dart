@@ -363,6 +363,8 @@ abstract class SSHTransport with SSHDiffieHellman {
     } catch (err) {
       if (error != null) {
         error(err);
+      } else {
+        rethrow;
       }
     }
   }
