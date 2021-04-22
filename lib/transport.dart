@@ -363,7 +363,9 @@ abstract class SSHTransport with SSHDiffieHellman {
       }
     } catch (err) {
       if (error != null) {
-        error(err);
+        ConnectionFailure.determineFailure(err, hostport).then((failure) {
+          error(failure);
+        });
       } else {
         rethrow;
       }
