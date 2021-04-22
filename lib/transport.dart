@@ -7,6 +7,7 @@ import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:convert/convert.dart';
+import 'package:dartssh/connection_failure.dart';
 import "package:pointycastle/api.dart";
 import 'package:pointycastle/macs/hmac.dart';
 import 'package:pointycastle/random/fortuna_random.dart';
@@ -31,7 +32,7 @@ typedef FingerprintCallback = bool Function(int, Uint8List);
 typedef ChannelCallback = void Function(Channel, Uint8List);
 typedef ChannelInputCallback = void Function(Channel, SerializableInput);
 typedef ResponseCallback = void Function(SSHTransport, String);
-typedef ErrorCallback = void Function(Exception);
+typedef ErrorCallback = void Function(ConnectionFailure);
 typedef RemoteForwardCallback = Future<String> Function(
     Channel, String, int, String, int);
 

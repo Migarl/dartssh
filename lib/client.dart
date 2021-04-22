@@ -21,6 +21,8 @@ import 'package:dartssh/transport.dart';
 import 'package:dartssh/websocket_html.dart'
     if (dart.library.io) 'package:dartssh/websocket_io.dart';
 
+import 'connection_failure.dart';
+
 /// The Secure Shell (SSH) is a protocol for secure remote login and
 /// other secure network services over an insecure network.
 class SSHClient extends SSHTransport with SSHAgentForwarding {
@@ -99,7 +101,8 @@ class SSHClient extends SSHTransport with SSHAgentForwarding {
           hostport, onConnected, (error) => disconnect('connect error'));
     } catch (err) {
       if (error != null) {
-        error(err);
+        final failure = await ConnectionFailure.determineFailure(err, hostport);
+        error(failure);
       } else {
         rethrow;
       }
