@@ -34,6 +34,9 @@ abstract class ConnectionFailure {
     }
     return ServerError(message: msg);
   }
+
+  @override
+  String toString() => '$_message';
 }
 
 class NoInternetConnection extends ConnectionFailure {
