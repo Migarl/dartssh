@@ -94,11 +94,12 @@ class SSHClient extends SSHTransport with SSHAgentForwarding {
     }
   }
 
-  Future<Socket> connect() async {
+  Future<Socket> connect({int timeoutSeconds = 15}) async {
     try {
       if (socket == null) return null;
       return await socket.connect(
-          hostport, onConnected, (error) => disconnect('connect error'));
+          hostport, onConnected, (error) => disconnect('connect error'),
+          timeoutSeconds: timeoutSeconds);
     } catch (err) {
       if (error != null) {
         final failure = await ConnectionFailure.determineFailure(err, hostport);
